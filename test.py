@@ -3,7 +3,7 @@ from tqdm import tqdm
 
 import numpy as np
 import torch
-import tools.utils
+from tools.utils import load, resample
 import model.utils as model_utils
 import utils
 
@@ -82,10 +82,11 @@ def predict(audio, model):
     return outputs
 
 
-def predict_song(channels, audio_path, model):
+def predict_song(channels, sr, audio_path, model):
     '''
     Predicts sources for an audio file for which the file path is given, using a given model.
     Takes care of resampling the input audio to the models sampling rate and resampling predictions back to input sampling rate.
+    :param sr:
     :param channels:
     :param args: Options dictionary
     :param audio_path: Path to mixture audio file
@@ -95,7 +96,7 @@ def predict_song(channels, audio_path, model):
     model.eval()
 
     # Load mixture in original sampling rate
-    mix_audio, mix_sr = tools.utils.load(audio_path, sr=None, mono=False)
+    mix_audio, mix_sr = load(audio_path, sr=None, mono=False)
     mix_channels = mix_audio.shape[0]
     mix_len = mix_audio.shape[1]
 
@@ -106,15 +107,15 @@ def predict_song(channels, audio_path, model):
         if mix_channels == 1: # Duplicate channels if input is mono but model is stereo
             mix_audio = np.tile(mix_audio, [channels, 1])
         else:
-            assert(mix_channels == args.channels)
+            assert(mix_channels == channels)
 
     # resample to model sampling rate
-    mix_audio = tools.utils.resample(mix_audio, mix_sr, args.sr)
+    mix_audio = resample(mix_audio, mix_sr, sr)
 
     sources = predict(mix_audio, model)
 
     # Resample back to mixture sampling rate in case we had model on different sampling rate
-    sources = {key : tools.utils.resample(sources[key], args.sr, mix_sr) for key in sources.keys()}
+    sources = {key: resample(sources[key], sr, mix_sr) for key in sources.keys()}
 
     # In case we had to pad the mixture at the end, or we have a few samples too many due to inconsistent down- and upsamṕling, remove those samples from source prediction now
     for key in sources.keys():
@@ -141,15 +142,17 @@ def predict_song(channels, audio_path, model):
     return sources
 
 
-def evaluate(args, dataset, model, instruments):
+def evaluate(channels, sr, dataset, model, instruments):
     '''
     Evaluates a given model on a given dataset
-    :param args: Options dict
+    :param sr:
+    :param channels:
     :param dataset: Dataset object
     :param model: Pytorch model
     :param instruments: List of source names
     :return: Performance metric dictionary, list with each element describing one dataset sample's results
     '''
+
     perfs = list()
     model.eval()
     with torch.no_grad():
@@ -157,10 +160,10 @@ def evaluate(args, dataset, model, instruments):
             print("Evaluating " + example["mix"])
 
             # Load source references in their original sr and channel number
-            target_sources = np.stack([tools.utils.load(example[instrument], sr=None, mono=False)[0].T for instrument in instruments])
+            target_sources = np.stack([load(example[instrument], sr=None, mono=False)[0].T for instrument in instruments])
 
             # Predict using mixture
-            pred_sources = predict_song(args, example["mix"], model)
+            pred_sources = predict_song(channels, sr, example["mix"], model)
             pred_sources = np.stack([pred_sources[key].T for key in instruments])
 
             # Evaluate

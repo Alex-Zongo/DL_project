@@ -52,7 +52,7 @@ class Resample1d(nn.Module):
             diff_steps = out.shape[2] - expected_steps
             if diff_steps > 0:
                 assert(diff_steps % 2 == 0)
-                out = out[:,:,diff_steps//2:-diff_steps//2]
+                out = out[:, :, diff_steps//2:-diff_steps//2]
         else:
             assert(input_size % self.stride == 1)
             out = F.conv1d(out, self.filter, stride=self.stride, padding=0, groups=self.channels)
@@ -70,9 +70,9 @@ class Resample1d(nn.Module):
             if self.padding == "valid":
                 return ((input_size - 1) * self.stride + 1) - self.kernel_size + 1
             else:
-                return ((input_size - 1) * self.stride + 1)
+                return (input_size - 1) * self.stride + 1
         else:
-            assert(input_size % self.stride == 1) # Want to take first and last sample
+            assert(input_size % self.stride == 1)  # Want to take first and last sample
             if self.padding == "valid":
                 return input_size - self.kernel_size + 1
             else:
@@ -80,24 +80,24 @@ class Resample1d(nn.Module):
 
     def get_input_size(self, output_size):
         '''
-        Returns the input dimensionality (number of timesteps) for a given output size
+        Returns the input dimensionality (number of time steps) for a given output size
         :param input_size: Number of input time steps (Scalar, each feature is one-dimensional)
         :return: Output size (scalar)
         '''
 
         # Strided conv/decimation
         if not self.transpose:
-            curr_size = (output_size - 1)*self.stride + 1 # o = (i-1)//s + 1 => i = (o - 1)*s + 1
+            curr_size = (output_size - 1)*self.stride + 1  # o = (i-1)//s + 1 => i = (o - 1)*s + 1
         else:
             curr_size = output_size
 
         # Conv
         if self.padding == "valid":
-            curr_size = curr_size + self.kernel_size - 1 # o = i + p - k + 1
+            curr_size = curr_size + self.kernel_size - 1  # o = i + p - k + 1
 
         # Transposed
         if self.transpose:
-            assert ((curr_size - 1) % self.stride == 0)# We need to have a value at the beginning and end
+            assert ((curr_size - 1) % self.stride == 0)  # We need to have a value at the beginning and end
             curr_size = ((curr_size - 1) // self.stride) + 1
         assert(curr_size > 0)
         return curr_size

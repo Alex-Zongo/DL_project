@@ -46,7 +46,7 @@ def get_data(data_path):
                     temp_f = f'{track_name}.{stems[ch]}.wav'
                     out_path = os.path.join(tmpdir, temp_f)
                     subprocess.run(['ffmpeg', '-i', track_path, '-map', f'0:{ch}', out_path])
-                    audio, sr = librosa.load(out_path, sr=44100)
+                    audio, sr = load(out_path, sr=None, mono=False)
                     # if stems[ch] != "vocals":
                     #     acc_audio.append(audio)
                     out_path = os.path.join(data_path, subdir, temp_f)

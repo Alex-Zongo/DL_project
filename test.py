@@ -17,7 +17,8 @@ def compute_model_output(model, inputs):
     :return: Model outputs, Average loss over batch
     '''
     all_outputs = {}
-
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = inputs.to(device)
     if model.separate:
         for inst in model.instruments:
             output = model(inputs, inst)
@@ -73,7 +74,7 @@ def predict(audio, model):
                 outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets.squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)
-    outputs = {key : outputs[key][:,:expected_outputs] for key in outputs.keys()}
+    outputs = {key : outputs[key][:, :expected_outputs] for key in outputs.keys()}
 
     if return_mode == "pytorch":
         outputs = torch.from_numpy(outputs)

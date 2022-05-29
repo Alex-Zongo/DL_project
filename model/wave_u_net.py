@@ -70,7 +70,7 @@ class DownsamplingBlock(nn.Module):
 
         # CONV 2 with decimation
         if res == "fixed":
-            self.downconv = Resample1d(n_outputs, 15, stride) # Resampling with fixed-size sync low-pass filter
+            self.downconv = Resample1d(n_outputs, 15, stride)  # Resampling with fixed-size sync low-pass filter
         else:
             self.downconv = ConvLayer(n_outputs, n_outputs, kernel_size, stride, conv_type)
 

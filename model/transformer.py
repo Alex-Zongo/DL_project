@@ -37,7 +37,8 @@ class TransformerEncoderLayer(nn.Module):
             see the docs in Transformer class.
         """
         # src: [B, C, T]
-        src_w = src.permute(0, 2, 1)
+        # src_w = src.permute(0, 2, 1)
+        src_w = src
         src2 = self.self_attn(src_w, src_w, src_w, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         src_w = src_w + self.dropout1(src2)
@@ -45,7 +46,7 @@ class TransformerEncoderLayer(nn.Module):
         src2 = self.linear(self.dropout(self.activation(self.lstm(src_w)[0])))
         src_w = src_w + self.dropout2(src2)
         src_w = self.norm2(src_w)
-        return src_w.permute(0, 2, 1) # output: [B, C, T]
+        return src_w # output: [B, C, T]
 
 
 def _get_activation_fn(activation):
@@ -55,26 +56,3 @@ def _get_activation_fn(activation):
         return F.gelu
 
     raise RuntimeError("activation should be relu/gelu, not {}".format(activation))
-
-
-class SingleTransformer(nn.Module):
-    """
-    Container module for a single Transformer layer.
-    args: input_size: int, dimension of the input feature. The input should have shape (batch, seq_len, input_size).
-    """
-    def __init__(self, input_size, hidden_size, dropout):
-        super(SingleTransformer, self).__init__()
-        self.transformer = TransformerEncoderLayer(d_model=input_size, nhead=4, hidden_size=hidden_size,
-                                                   num_layers=1, dropout=dropout)
-
-    def forward(self, x):
-        # input shape: batch, seq, dim
-        transformer_output = self.transformer(x)
-        return transformer_output
-
-    def get_output_size(self, input_size):
-        curr_size = input_size
-        return curr_size
-
-    def get_input_size(self, output_size):
-        return output_size

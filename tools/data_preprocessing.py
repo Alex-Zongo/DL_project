@@ -10,6 +10,49 @@ import librosa
 
 
 # get the dataset
+def get_data_hq(database_path):
+    '''
+    Retrieve audio file paths for MUSDB HQ dataset
+    :param database_path: MUSDB HQ root directory
+    :return: dictionary with train and test keys, each containing list of samples, each sample containing all audio paths
+    '''
+    subsets = list()
+
+    for subset in ["train", "test"]:
+        print("Loading " + subset + " set...")
+        tracks = glob.glob(os.path.join(database_path, subset, "*"))
+        samples = list()
+        print(tracks)
+
+        # Go through tracks
+        for track_folder in sorted(tracks):
+            # Skip track if mixture is already written, assuming this track is done already
+            example = dict()
+            for stem in ["mix", "bass", "drums", "other", "vocals"]:
+                filename = stem if stem != "mix" else "mixture"
+                audio_path = os.path.join(track_folder, filename + ".wav")
+                example[stem] = audio_path
+
+            # Add other instruments to form accompaniment
+            acc_path = os.path.join(track_folder, "accompaniment.wav")
+
+            if not os.path.exists(acc_path):
+                print("Writing accompaniment to " + track_folder)
+                stem_audio = []
+                for stem in ["bass", "drums", "other"]:
+                    audio, sr = load(example[stem], sr=None, mono=False)
+                    stem_audio.append(audio)
+                acc_audio = np.clip(sum(stem_audio), -1.0, 1.0)
+                write_wav(acc_path, acc_audio, sr)
+
+            example["accompaniment"] = acc_path
+
+            samples.append(example)
+
+        subsets.append(samples)
+
+    return subsets
+
 def get_data(data_path):
     """
     return the audio file paths for the dataset
@@ -77,8 +120,11 @@ def get_data(data_path):
     return subsets
 
 
-def get_data_folds(root_path):
-    dataset = get_data(root_path)
+def get_data_folds(root_path, cat="hq"):
+    if cat == "hq":
+        dataset = get_data_hq(root_path)
+    else:
+        dataset = get_data(root_path)
     train_val_list = dataset[0]
     print(len(train_val_list))
     test_list = dataset[1]

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from model.crop import centre_crop
-
+from model.transformer import SingleTransformer
 
 # changed version of convLayer
 class ConvLayer(nn.Module):
@@ -33,10 +33,6 @@ class ConvLayer(nn.Module):
         elif conv_type == "decoder":
             self.transpose = True
             self.filter = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size - 1)
-        # elif conv_type == "bottleneck":
-        #     pass
-
-        # Add you own types of variations here!
 
     def forward(self, x):
         # Apply the convolution
@@ -207,7 +203,7 @@ def build_sinc_filter(kernel_size, cutoff):
 
 
 class Encoder(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, res):
+    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, res):
         super(Encoder, self).__init__()
         assert (stride > 1)
 
@@ -217,14 +213,10 @@ class Encoder(nn.Module):
 
         # CONV 1
         self.pre_shortcut_convs = nn.ModuleList(
-            [ConvLayer(n_inputs, n_shortcut, kernel_size, 1, conv_type=self.conv_type)] +
-            [ConvLayer(n_shortcut, n_shortcut, kernel_size, 1, conv_type=self.conv_type) for _ in
-             range(depth - 1)])
+            [ConvLayer(n_inputs, n_shortcut, kernel_size, 1, conv_type=self.conv_type)])
 
         self.post_shortcut_convs = nn.ModuleList(
-            [ConvLayer(n_shortcut, n_outputs, kernel_size, 1, conv_type=self.conv_type)] +
-            [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type=self.conv_type) for _ in
-             range(depth - 1)])
+            [ConvLayer(n_shortcut, n_outputs, kernel_size, 1, conv_type=self.conv_type)])
 
         # CONV 2 with decimation
         if res == "fixed":
@@ -260,7 +252,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, res):
+    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, res):
         super(Decoder, self).__init__()
         assert (stride >= 1)
         self.conv_type = "decoder"
@@ -271,14 +263,11 @@ class Decoder(nn.Module):
             self.upconv = ConvLayer(n_inputs, n_inputs, kernel_size, stride, conv_type=self.conv_type, transpose=True)
 
         self.pre_shortcut_convs = nn.ModuleList(
-            [ConvLayer(n_inputs, n_outputs, kernel_size, 1, conv_type=self.conv_type)] +
-            [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type=self.conv_type) for _ in
-             range(depth - 1)])
+            [ConvLayer(n_inputs, n_outputs, kernel_size, 1, conv_type=self.conv_type)])
 
         # CONVS to combine high- with low-level information (from shortcut)
         self.post_shortcut_convs = nn.ModuleList(
-            [ConvLayer(n_outputs + n_shortcut, n_outputs, kernel_size, 1, conv_type=self.conv_type)] +
-            [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type=self.conv_type) for _ in range(depth - 1)])
+            [ConvLayer(n_outputs + n_shortcut, n_outputs, kernel_size, 1, conv_type=self.conv_type)])
 
     def forward(self, x, shortcut):
         # UPSAMPLE HIGH-LEVEL FEATURES
@@ -333,11 +322,11 @@ class Bottleneck(nn.Module):
         return in_size
 
 
-# aveunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
+# waveunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
 #                      conv_type=conv_type, depth=depth, strides=strides, res=res, separate=separate)
 class Alexunet(nn.Module):
     def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size,
-                 res, separate=False, depth=1, strides=4):
+                 res, separate=False, strides=4):
         super(Alexunet, self).__init__()
 
         self.num_levels = len(num_channels)
@@ -345,7 +334,7 @@ class Alexunet(nn.Module):
         self.kernel_size = kernel_size
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
-        self.depth = depth
+        # self.depth = depth
         self.instruments = instruments
         self.separate = separate
 
@@ -366,17 +355,23 @@ class Alexunet(nn.Module):
                 in_ch = num_inputs if i == 0 else num_channels[i]
 
                 module.encoder_blocks.append(
-                    Encoder(in_ch, num_channels[i], num_channels[i + 1], kernel_size, strides, depth, res))
+                    Encoder(in_ch, num_channels[i], num_channels[i + 1], kernel_size, strides, res))
 
             for i in range(0, self.num_levels - 1):
                 module.decoder_blocks.append(
-                    Decoder(num_channels[-1 - i], num_channels[-2 - i], num_channels[-2 - i], kernel_size, strides,
-                            depth, res))
+                    Decoder(num_channels[-1 - i], num_channels[-2 - i], num_channels[-2 - i], kernel_size, strides, res))
 
             # TODO ==> modify the bottleneck
+
             # module.bottlenecks = nn.ModuleList(
             #     [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, conv_type="bottleneck") for _ in range(depth)])
-            module.bottlenecks = nn.ModuleList([Bottleneck(num_channels[-1], num_channels[-1], n_layers=3)])
+
+            # module.bottlenecks = nn.ModuleList([Bottleneck(num_channels[-1], num_channels[-1], n_layers=3)])
+
+            module.bottlenecks = nn.ModuleList(
+                [SingleTransformer(input_size=num_channels[-1], hidden_size=num_channels[-1], dropout=0.2)]
+            )
+
 
             # Output conv
             outputs = num_outputs if separate else num_outputs * len(instruments)
@@ -467,7 +462,7 @@ class Alexunet(nn.Module):
         if self.separate:
             return {inst: self.forward_module(x, self.alexunets[inst])}
         else:
-            assert (len(self.waveunets) == 1)
+            assert (len(self.alexunets) == 1)
             out = self.forward_module(x, self.alexunets["ALL"])
 
             out_dict = {}

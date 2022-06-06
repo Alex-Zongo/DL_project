@@ -1,6 +1,6 @@
 # DL_project
  project for Deep Learning Class
-
+    The preprocessing and the model baseline rely on the one implemented in @f90/Wave-U-Net-Pytorch repository (https://github.com/f90/Wave-U-Net-Pytorch)
     For Training:
         First run the main.py file to download the dataset
         Then:

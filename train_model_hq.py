@@ -21,9 +21,9 @@ from tools.utils import crop_targets, random_amplify
 from utils import worker_init_fn
 
 if __name__ == '__main__':
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    dataset_dir = "dataset"  # dataset_hq or dataset
+    dataset_dir = "dataset_hq/musdb18hq"  # dataset_hq or dataset
     checkpoint_dir = "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq"
 
     # waveunet_gpu ==> depth=1 and levels=2 load from ckp2025
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     output_size = 3.0  # output duration
     feature_growth = "double"  # double/add
     levels = 6  # number of DS/US blocks
-
+    # conv_type = "gn"  # (normal, BN-normalised, GN-normalised): normal/bn/gn"
     res = "fixed"  # resampling strategy ("fixed" or "learned")
     separate = 0  # train separate model for each source (1) or only one (0)
     sample_freq = 200  # Write an audio summary into Tensorboard logs every X training iterations
@@ -52,15 +52,15 @@ if __name__ == '__main__':
 
     # MODEL
     model = Alexunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
-                     strides=strides, res=res, separate=separate)
+                     depth=depth, strides=strides, res=res, separate=separate)
     model = model.to(device)
 
-    log_dir = './runs/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq_onSmallData'
+    log_dir = './runs/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq'
     writer = SummaryWriter(log_dir)
 
     # DATASET
-    hdf_dir = "alex_hdf_depth1_level6_transformer_batch8"
-    dataset = get_data_folds(root_path=dataset_dir, cat="")
+    hdf_dir = "alex_hdf_depth1_level6_transformer_batch8_output3s"
+    dataset = get_data_folds(root_path=dataset_dir, cat="hq")
     # print(dataset)
     crop_func = partial(crop_targets, shapes=model.shapes)
     augment_func = partial(random_amplify, shapes=model.shapes, min=0.7, max=1.0)
@@ -82,11 +82,11 @@ if __name__ == '__main__':
 
     # #### Training #####
     # loss function
-    # loss = "L2"  # MSE loss
+    loss = "L2"  # MSE loss
     criterion = nn.MSELoss()
 
     # Optimizer
-    lr = 5e-4
+    lr = 1e-3
     min_lr = 5e-6
     optimizer = Adam(model.parameters(), lr=lr)
 
@@ -99,76 +99,74 @@ if __name__ == '__main__':
     }
     #
     # Load model from checkpoint and continue training
-    is_load_model = "load"  # load a checkpoint
+    is_load_model = "load"
     if is_load_model is not None:
         print("Continuing training full model from checkpoint " + str(load_model))
-        state = load_model(model, optimizer,
-                           "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175",
-                           device)
+        state = load_model(model, optimizer, "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175", device)
 
-    patience = 20
-    while state["worse_epoch"] < patience:
-        print("Training one epoch from iteration " + str(state["step"]))
-        avg_time = 0.0
-        model.train()
-        with tqdm(total=len(training_data) // batch_size) as pbar:
-            np.random.seed()
-            for sample_id, (x, targets) in enumerate(data_loader):
-                x = x.to(device)
-                for k in list(targets.keys()):
-                    targets[k] = targets[k].to(device)
-                t = time.time()
-
-                # set lr
-                utils.set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
-                writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
-
-                # compute loss for each instrument
-                optimizer.zero_grad()
-                outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
-
-                optimizer.step()
-
-                state["step"] += 1
-
-                t = time.time() - t
-                avg_time += (1. / float(sample_id + 1)) * (t - avg_time)
-
-                writer.add_scalar("train_loss", avg_loss, state["step"])
-
-                if sample_id % sample_freq == 0:
-                    input_centre = torch.mean(
-                        x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
-                        0)  # Stereo not supported for logs yet
-                    writer.add_audio("input", input_centre, state["step"], sample_rate=sr)
-
-                    for inst in outputs.keys():
-                        writer.add_audio(inst + "_pred", torch.mean(outputs[inst][0], 0), state["step"],
-                                         sample_rate=sr)
-                        writer.add_audio(inst + "_target", torch.mean(targets[inst][0], 0), state["step"],
-                                         sample_rate=sr)
-
-                pbar.update(1)
-        print("Average training time: ", avg_time)
-        # validate
-        val_loss = validate(batch_size, num_workers, device, model, criterion, val_data)
-        print("VALIDATION FINISHED: LOSS: " + str(val_loss))
-        writer.add_scalar("val_loss", val_loss, state["step"])
-
-        # EARLY STOPPING CHECK
-        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_" + str(state["step"]))
-        if val_loss >= state["best_loss"]:
-            state["worse_epoch"] += 1
-        else:
-            print("MODEL IMPROVED ON VALIDATION SET!")
-            state["worse_epoch"] = 0
-            state["best_loss"] = val_loss
-            state["best_checkpoint"] = checkpoint_path
-
-        state["epoch"] += 1
-        # CHECKPOINT
-        print("Saving model...")
-        save_model(model, optimizer, state, checkpoint_path)
+    # patience = 20
+    # while state["worse_epoch"] < patience:
+    #     print("Training one epoch from iteration " + str(state["step"]))
+    #     avg_time = 0.0
+    #     model.train()
+    #     with tqdm(total=len(training_data) // batch_size) as pbar:
+    #         np.random.seed()
+    #         for sample_id, (x, targets) in enumerate(data_loader):
+    #             x = x.to(device)
+    #             for k in list(targets.keys()):
+    #                 targets[k] = targets[k].to(device)
+    #             t = time.time()
+    #
+    #             # set lr
+    #             utils.set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
+    #             writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
+    #
+    #             # compute loss for each instrument
+    #             optimizer.zero_grad()
+    #             outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
+    #
+    #             optimizer.step()
+    #
+    #             state["step"] += 1
+    #
+    #             t = time.time() - t
+    #             avg_time += (1. / float(sample_id + 1)) * (t - avg_time)
+    #
+    #             writer.add_scalar("train_loss", avg_loss, state["step"])
+    #
+    #             if sample_id % sample_freq == 0:
+    #                 input_centre = torch.mean(
+    #                     x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
+    #                     0)  # Stereo not supported for logs yet
+    #                 writer.add_audio("input", input_centre, state["step"], sample_rate=sr)
+    #
+    #                 for inst in outputs.keys():
+    #                     writer.add_audio(inst + "_pred", torch.mean(outputs[inst][0], 0), state["step"],
+    #                                      sample_rate=sr)
+    #                     writer.add_audio(inst + "_target", torch.mean(targets[inst][0], 0), state["step"],
+    #                                      sample_rate=sr)
+    #
+    #             pbar.update(1)
+    #     print("Average training time: ", avg_time)
+    #     # validate
+    #     val_loss = validate(batch_size, num_workers, device, model, criterion, val_data)
+    #     print("VALIDATION FINISHED: LOSS: " + str(val_loss))
+    #     writer.add_scalar("val_loss", val_loss, state["step"])
+    #
+    #     # EARLY STOPPING CHECK
+    #     checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_" + str(state["step"]))
+    #     if val_loss >= state["best_loss"]:
+    #         state["worse_epoch"] += 1
+    #     else:
+    #         print("MODEL IMPROVED ON VALIDATION SET!")
+    #         state["worse_epoch"] = 0
+    #         state["best_loss"] = val_loss
+    #         state["best_checkpoint"] = checkpoint_path
+    #
+    #     state["epoch"] += 1
+    #     # CHECKPOINT
+    #     print("Saving model...")
+    #     save_model(model, optimizer, state, checkpoint_path)
 
     # TODO
     #### TESTING ####
@@ -176,17 +174,17 @@ if __name__ == '__main__':
     print("TESTING")
 
     # Load best model based on validation loss
-
+    #state = load_model(model, None, "checkpoints/alexunet_gpu_depth1_level6_res_learned_lstm_with_conv/checkpoint_7650", device)
     state = load_model(model, None, state["best_checkpoint"], device)
-    test_loss = validate(batch_size, num_workers, device, model, criterion, test_data)
+    test_loss = validate(batch_size, num_workers, device, model, criterion, training_data)
     print("TEST FINISHED: LOSS: " + str(test_loss))
-    writer.add_scalar("test_loss", test_loss, state["step"])
+    writer.add_scalar("train_loss", test_loss, state["step"])
 
     # Mir_eval metrics
-    test_metrics = evaluate(channels, sr, dataset["test"], model, instruments)
+    test_metrics = evaluate(channels, sr, dataset["train"], model, instruments)
 
     # Dump all metrics results into pickle file for later analysis if needed
-    with open(os.path.join(checkpoint_dir, "results.pkl"), "wb") as f:
+    with open(os.path.join(checkpoint_dir, "results_train_hq.pkl"), "wb") as f:
         pickle.dump(test_metrics, f)
 
     # Write most important metrics into Tensorboard log
@@ -195,10 +193,10 @@ if __name__ == '__main__':
     avg_SIRs = {inst: np.mean([np.nanmedian(song[inst]["SIR"]) for song in test_metrics]) for inst in
                 instruments}
     for inst in instruments:
-        writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])
-        writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])
+        writer.add_scalar("train_SDR_" + inst, avg_SDRs[inst], state["step"])
+        writer.add_scalar("train_SIR_" + inst, avg_SIRs[inst], state["step"])
     overall_SDR = np.mean([v for v in avg_SDRs.values()])
-    writer.add_scalar("test_SDR", overall_SDR)
+    writer.add_scalar("train_SDR", overall_SDR)
     print("SDR: " + str(overall_SDR))
 
     writer.close()

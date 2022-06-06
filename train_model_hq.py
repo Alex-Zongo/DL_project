@@ -21,7 +21,7 @@ from tools.utils import crop_targets, random_amplify
 from utils import worker_init_fn
 
 if __name__ == '__main__':
-    # torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dataset_dir = "dataset_hq/musdb18hq"  # dataset_hq or dataset
     checkpoint_dir = "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq"
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     kernel_size = 5
     batch_size = 8
     cycles = 2  # Number of LR cycles per epoch
-    depth = 1  # number of convolution per block
+
     strides = 4
     output_size = 3.0  # output duration
     feature_growth = "double"  # double/add
@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     # MODEL
     model = Alexunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
-                     depth=depth, strides=strides, res=res, separate=separate)
+                     strides=strides, res=res, separate=separate)
     model = model.to(device)
 
     log_dir = './runs/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq'
@@ -104,69 +104,69 @@ if __name__ == '__main__':
         print("Continuing training full model from checkpoint " + str(load_model))
         state = load_model(model, optimizer, "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175", device)
 
-    # patience = 20
-    # while state["worse_epoch"] < patience:
-    #     print("Training one epoch from iteration " + str(state["step"]))
-    #     avg_time = 0.0
-    #     model.train()
-    #     with tqdm(total=len(training_data) // batch_size) as pbar:
-    #         np.random.seed()
-    #         for sample_id, (x, targets) in enumerate(data_loader):
-    #             x = x.to(device)
-    #             for k in list(targets.keys()):
-    #                 targets[k] = targets[k].to(device)
-    #             t = time.time()
-    #
-    #             # set lr
-    #             utils.set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
-    #             writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
-    #
-    #             # compute loss for each instrument
-    #             optimizer.zero_grad()
-    #             outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
-    #
-    #             optimizer.step()
-    #
-    #             state["step"] += 1
-    #
-    #             t = time.time() - t
-    #             avg_time += (1. / float(sample_id + 1)) * (t - avg_time)
-    #
-    #             writer.add_scalar("train_loss", avg_loss, state["step"])
-    #
-    #             if sample_id % sample_freq == 0:
-    #                 input_centre = torch.mean(
-    #                     x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
-    #                     0)  # Stereo not supported for logs yet
-    #                 writer.add_audio("input", input_centre, state["step"], sample_rate=sr)
-    #
-    #                 for inst in outputs.keys():
-    #                     writer.add_audio(inst + "_pred", torch.mean(outputs[inst][0], 0), state["step"],
-    #                                      sample_rate=sr)
-    #                     writer.add_audio(inst + "_target", torch.mean(targets[inst][0], 0), state["step"],
-    #                                      sample_rate=sr)
-    #
-    #             pbar.update(1)
-    #     print("Average training time: ", avg_time)
-    #     # validate
-    #     val_loss = validate(batch_size, num_workers, device, model, criterion, val_data)
-    #     print("VALIDATION FINISHED: LOSS: " + str(val_loss))
-    #     writer.add_scalar("val_loss", val_loss, state["step"])
-    #
-    #     # EARLY STOPPING CHECK
-    #     checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_" + str(state["step"]))
-    #     if val_loss >= state["best_loss"]:
-    #         state["worse_epoch"] += 1
-    #     else:
-    #         print("MODEL IMPROVED ON VALIDATION SET!")
-    #         state["worse_epoch"] = 0
-    #         state["best_loss"] = val_loss
-    #         state["best_checkpoint"] = checkpoint_path
-    #
-    #     state["epoch"] += 1
-    #     # CHECKPOINT
-    #     print("Saving model...")
-    #     save_model(model, optimizer, state, checkpoint_path)
+    patience = 20
+    while state["worse_epoch"] < patience:
+        print("Training one epoch from iteration " + str(state["step"]))
+        avg_time = 0.0
+        model.train()
+        with tqdm(total=len(training_data) // batch_size) as pbar:
+            np.random.seed()
+            for sample_id, (x, targets) in enumerate(data_loader):
+                x = x.to(device)
+                for k in list(targets.keys()):
+                    targets[k] = targets[k].to(device)
+                t = time.time()
+
+                # set lr
+                utils.set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
+                writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
+
+                # compute loss for each instrument
+                optimizer.zero_grad()
+                outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
+
+                optimizer.step()
+
+                state["step"] += 1
+
+                t = time.time() - t
+                avg_time += (1. / float(sample_id + 1)) * (t - avg_time)
+
+                writer.add_scalar("train_loss", avg_loss, state["step"])
+
+                if sample_id % sample_freq == 0:
+                    input_centre = torch.mean(
+                        x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
+                        0)  # Stereo not supported for logs yet
+                    writer.add_audio("input", input_centre, state["step"], sample_rate=sr)
+
+                    for inst in outputs.keys():
+                        writer.add_audio(inst + "_pred", torch.mean(outputs[inst][0], 0), state["step"],
+                                         sample_rate=sr)
+                        writer.add_audio(inst + "_target", torch.mean(targets[inst][0], 0), state["step"],
+                                         sample_rate=sr)
+
+                pbar.update(1)
+        print("Average training time: ", avg_time)
+        # validate
+        val_loss = validate(batch_size, num_workers, device, model, criterion, val_data)
+        print("VALIDATION FINISHED: LOSS: " + str(val_loss))
+        writer.add_scalar("val_loss", val_loss, state["step"])
+
+        # EARLY STOPPING CHECK
+        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_" + str(state["step"]))
+        if val_loss >= state["best_loss"]:
+            state["worse_epoch"] += 1
+        else:
+            print("MODEL IMPROVED ON VALIDATION SET!")
+            state["worse_epoch"] = 0
+            state["best_loss"] = val_loss
+            state["best_checkpoint"] = checkpoint_path
+
+        state["epoch"] += 1
+        # CHECKPOINT
+        print("Saving model...")
+        save_model(model, optimizer, state, checkpoint_path)
 
     # TODO
     #### TESTING ####

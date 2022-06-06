@@ -21,30 +21,31 @@ from tools.utils import crop_targets, random_amplify
 from utils import worker_init_fn
 
 if __name__ == '__main__':
+    torch.cuda.empty_cache()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    dataset_dir = "dataset"
+    dataset_dir = "dataset_hq/musdb18hq"
     checkpoint_dir = "checkpoints/alexdemucs"
 
     # HYPER-PARAMETERS
     sr = 44100
     instruments = ["bass", "drums", "other", "vocals"]
-    features = 48  # number of feature channels per layer
+    features = 32  # number of feature channels per layer
     channels = 2
     # kernel_size = 5
-    batch_size = 4
-    cycles = 3  # Number of LR cycles per epoch
+    batch_size = 8
+    cycles = 2  # Number of LR cycles per epoch
     # depth = 1  # number of convolution per block
     # strides = 4
-    output_size = 2.0  # output duration 2.0s
+    output_size = 3.0  # output duration 2.0s
     # feature_growth = "double"  # double/add
     levels = 6  # number of DS/US blocks
     # conv_type = "gn"  # (normal, BN-normalised, GN-normalised): normal/bn/gn"
     # res = "fixed"  # resampling strategy ("fixed" or "learned")
-    separate = 1  # train separate model for each source (1) or only one (0)
+    separate = 0  # train separate model for each source (1) or only one (0)
     sample_freq = 200  # Write an audio summary into Tensorboard logs every X training iterations
     # num_features = [features * i for i in range(1, levels + 1)] if feature_growth == "add" else \
     #     [features * 2 ** i for i in range(0, levels)]
-    num_features = [2, 48]+[48*2**i for i in range(1, levels)]
+    num_features = [2, features]+[features*2**i for i in range(1, levels)]
     target_outputs = int(output_size * sr)
     num_workers = 4
 
@@ -56,11 +57,11 @@ if __name__ == '__main__':
                        num_levels=levels, separate=0, instruments=instruments)
     model = model.to(device)
 
-    log_dir = './runs/alexdemucs'
+    log_dir = './runs/alexdemucs_lstm_transformer'
     writer = SummaryWriter(log_dir)
 
     # DATASET
-    hdf_dir = "hdf"
+    hdf_dir = "alex_hdf_depth1_level6_transformer_batch8_output3s"
     dataset = get_data_folds(root_path=dataset_dir)
     print(dataset)
 
@@ -89,8 +90,8 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
 
     # Optimizer
-    lr = 1e-3
-    min_lr = 5e-5
+    lr = 5e-4
+    min_lr = 5e-6
     optimizer = Adam(model.parameters(), lr=lr)
 
     # # training state dict
@@ -105,9 +106,9 @@ if __name__ == '__main__':
     is_load_model = None
     if is_load_model is not None:
         print("Continuing training full model from checkpoint " + str(load_model))
-        state = load_model(model, optimizer, "checkpoints/waveunet/checkpoint_3750", device)
+        state = load_model(model, optimizer, "checkpoints/alexdemucs/checkpoint_14910", device)
 
-    patience = 4
+    patience = 20
     while state["worse_epoch"] < patience:
         print("Training one epoch from iteration " + str(state["step"]))
         avg_time = 0.0
@@ -190,9 +191,9 @@ if __name__ == '__main__':
         pickle.dump(test_metrics, f)
 
     # Write most important metrics into Tensorboard log
-    avg_SDRs = {inst: np.mean([np.nanmean(song[inst]["SDR"]) for song in test_metrics]) for inst in
+    avg_SDRs = {inst: np.mean([np.nanmedian(song[inst]["SDR"]) for song in test_metrics]) for inst in
                 instruments}
-    avg_SIRs = {inst: np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metrics]) for inst in
+    avg_SIRs = {inst: np.mean([np.nanmedian(song[inst]["SIR"]) for song in test_metrics]) for inst in
                 instruments}
     for inst in instruments:
         writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])

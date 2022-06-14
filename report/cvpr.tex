@@ -67,7 +67,11 @@ In this section we will describe different approche and model architecture to im
 \subsection{Different approches}
 \subsubsection{Waveform}
 
-This type of model take the raw wave as input
+Waveform models take the raw wave as input, this give the models all the information available to build it's own representation of the data.
+Since audio have a hight frenquency if we wan't our model to make prediction on a fairly large time period the models will have a huge number of inputs.
+This could lead to a lot of operation for an single pass.
+And also could lead to a huge memory usage to record the gradients that could exceed the memory of our GPU.
+This concideration will influence our research.
 
 \subsubsection{Spectrogram}
 
@@ -80,14 +84,13 @@ This approche allow the model to have higher level features as input and reduced
 This higher level features can allow the model to learn faster and being smaller but it also don't give all the information on small local pertubation that can be usefull to produce the best final output.
 
 
-
 \subsubsection{Hybrid}
 The Hybrid approche use a network that have 2 input, one for the waveform and one for the spectrogram.
 This allow to have the best of both world but require a lot of computing power. Example of this kind of model include HybridDemucs \cite{hybrid-demucs}
 
 \subsection{Model architecture}
 
-The main model architecture is based on UNet, this model use an encoder that downsample at each step and then a decoder that upsample the bottleneck using the result of each previous encoder as second input.
+Most of the models are bases on the UNet architecture that use an encoder that downsample at each step and then a decoder that upsample the bottleneck using the result of each previous encoder as second input.
 The global architecture of Wave-U-Net\cite{waveunet} is show in Figure~\ref{waveunet-architecture}
 
 \begin{figure}

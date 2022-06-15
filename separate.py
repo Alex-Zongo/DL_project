@@ -9,7 +9,7 @@ import argparse
 
 def main(args):
     # parameters
-    checkpoint_dir = "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175"
+    checkpoint_dir = "checkpoints/alexunet_gpu_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175"
     sr = 44100
     instruments = ["bass", "drums", "other", "vocals"]
     features = 32  # number of feature channels per layer
@@ -21,18 +21,18 @@ def main(args):
     levels = 6  # number of DS/US blocks
     res = "fixed"  # resampling strategy ("fixed" or "learned")
     separate = 0  # train separate model for each source (1) or only one (0)
-    sample_freq = 200  # Write an audio summary into Tensorboard logs every X training iterations
+
     num_features = [features * i for i in range(1, levels + 1)] if feature_growth == "add" else \
         [features * 2 ** i for i in range(0, levels)]
     target_outputs = int(output_size * sr)
-    num_workers = 4
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model = Alexunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
                      strides=strides, res=res, separate=separate)
 
-    if device == "cuda":
-        model = model.to(device)
+    model = model.to(device)
+    print('model', model)
+    print('parameter count:', str(sum(p.numel() for p in model.parameters())))
 
     print("Loading model from checkpoint " + str(checkpoint_dir))
     state = load_model(model, None, checkpoint_dir, device)

@@ -5,7 +5,8 @@ import numpy as np
 from model.crop import centre_crop
 from model.transformer import SingleTransformer
 
-# changed version of convLayer
+
+# changed version of convLayer in Wave-U-net
 class ConvLayer(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, stride, conv_type, transpose=False):
         super(ConvLayer, self).__init__()
@@ -20,12 +21,7 @@ class ConvLayer(nn.Module):
         assert (n_outputs % NORM_CHANNELS == 0)
         self.norm = nn.GroupNorm(n_outputs // NORM_CHANNELS, n_outputs)
 
-        # if self.transpose:
-        #     self.filter = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size-1)
-        # else:
-        #     self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride)
-
-        if conv_type == "encoder" or conv_type == "bottleneck":
+        if conv_type == "encoder":
             self.transpose = False
             self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride)
             self.conv2 = nn.Conv1d(n_outputs, 2 * n_outputs, kernel_size=1, stride=1)
@@ -39,7 +35,7 @@ class ConvLayer(nn.Module):
         # if self.conv_type == "gn" or self.conv_type == "bn":
         #     out = F.relu(self.norm((self.filter(x))))
         # Add your own variations here with elif conditioned on "conv_type" parameter!
-        if self.conv_type == "encoder" or self.conv_type == "bottleneck":
+        if self.conv_type == "encoder":
             out = self.activation(self.conv2(F.relu(self.norm(self.filter(x)))))
         elif self.conv_type == "decoder":
             out = F.relu(self.norm(self.filter(x)))
@@ -82,7 +78,6 @@ class ConvLayer(nn.Module):
         return curr_size
 
 
-# TODO idea ==> change resample to synthesis
 class Resample1d(nn.Module):
     def __init__(self, channels, kernel_size, stride, transpose=False, padding="reflect", trainable=True):
         '''
@@ -322,8 +317,6 @@ class Bottleneck(nn.Module):
         return in_size
 
 
-# waveunet(channels, num_features, channels, instruments, kernel_size, target_output_size=target_outputs,
-#                      conv_type=conv_type, depth=depth, strides=strides, res=res, separate=separate)
 class Alexunet(nn.Module):
     def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size,
                  res, separate=False, strides=4):
@@ -334,7 +327,6 @@ class Alexunet(nn.Module):
         self.kernel_size = kernel_size
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
-        # self.depth = depth
         self.instruments = instruments
         self.separate = separate
 
@@ -343,6 +335,7 @@ class Alexunet(nn.Module):
 
         self.alexunets = nn.ModuleDict()
 
+        # during training we consider separate=0 ==> one model for all sources
         model_list = instruments if separate else ["ALL"]
         # Create a model for each source if we separate sources separately, otherwise only one (model_list=["ALL"])
         for instrument in model_list:
@@ -361,21 +354,13 @@ class Alexunet(nn.Module):
                 module.decoder_blocks.append(
                     Decoder(num_channels[-1 - i], num_channels[-2 - i], num_channels[-2 - i], kernel_size, strides, res))
 
-            # TODO ==> modify the bottleneck
-
-            # module.bottlenecks = nn.ModuleList(
-            #     [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, conv_type="bottleneck") for _ in range(depth)])
-
-            # module.bottlenecks = nn.ModuleList([Bottleneck(num_channels[-1], num_channels[-1], n_layers=3)])
-
             module.bottlenecks = nn.ModuleList(
                 [SingleTransformer(input_size=num_channels[-1], hidden_size=num_channels[-1], dropout=0.2)]
             )
 
-
             # Output conv
             outputs = num_outputs if separate else num_outputs * len(instruments)
-            module.output_conv = nn.Conv1d(num_channels[0], outputs, 1)
+            module.output_conv = nn.Conv1d(num_channels[0], outputs, 1, 1)
 
             self.alexunets[instrument] = module
 

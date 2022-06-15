@@ -10,29 +10,25 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-import utils
 from model.utils import compute_loss, save_model, load_model
 from model.my_model import Alexunet
 from test import validate, evaluate
 from tools.data_loader import SeparationDataset
 from tools.data_preprocessing import get_data_folds
-from tools.stem_to_wav import converter
 from tools.utils import crop_targets, random_amplify
-from utils import worker_init_fn
+from utils import worker_init_fn, set_cyclic_lr, get_lr
 
 if __name__ == '__main__':
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dataset_dir = "dataset_hq/musdb18hq"  # dataset_hq or dataset
-    checkpoint_dir = "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq"
+    checkpoint_dir = "checkpoints/alexunet_gpu_level6_res_fixed_transformer_oneModel_hq"
 
-    # waveunet_gpu ==> depth=1 and levels=2 load from ckp2025
-    # hdf => waveunet_gpu
     # HYPER-PARAMETERS
-    sr = 44100
+    sr = 44100  # kHZ
     instruments = ["bass", "drums", "other", "vocals"]
     features = 32  # number of feature channels per layer
-    channels = 2
+    channels = 2  # input channels = 2 (stereo inputs)
     kernel_size = 5
     batch_size = 8
     cycles = 2  # Number of LR cycles per epoch
@@ -41,7 +37,7 @@ if __name__ == '__main__':
     output_size = 3.0  # output duration
     feature_growth = "double"  # double/add
     levels = 6  # number of DS/US blocks
-    # conv_type = "gn"  # (normal, BN-normalised, GN-normalised): normal/bn/gn"
+
     res = "fixed"  # resampling strategy ("fixed" or "learned")
     separate = 0  # train separate model for each source (1) or only one (0)
     sample_freq = 200  # Write an audio summary into Tensorboard logs every X training iterations
@@ -55,7 +51,7 @@ if __name__ == '__main__':
                      strides=strides, res=res, separate=separate)
     model = model.to(device)
 
-    log_dir = './runs/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq'
+    log_dir = './runs/alexunet_gpu_level6_res_fixed_transformer_oneModel_hq'
     writer = SummaryWriter(log_dir)
 
     # DATASET
@@ -99,7 +95,7 @@ if __name__ == '__main__':
     }
     #
     # Load model from checkpoint and continue training
-    is_load_model = "load"
+    is_load_model = None
     if is_load_model is not None:
         print("Continuing training full model from checkpoint " + str(load_model))
         state = load_model(model, optimizer, "checkpoints/alexunet_gpu_depth1_level6_res_fixed_transformer_oneModel_hq/checkpoint_31175", device)
@@ -118,8 +114,8 @@ if __name__ == '__main__':
                 t = time.time()
 
                 # set lr
-                utils.set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
-                writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
+                set_cyclic_lr(optimizer, sample_id, len(training_data) // batch_size, cycles, min_lr, lr)
+                writer.add_scalar("lr", get_lr(optimizer), state["step"])
 
                 # compute loss for each instrument
                 optimizer.zero_grad()
@@ -168,34 +164,33 @@ if __name__ == '__main__':
         print("Saving model...")
         save_model(model, optimizer, state, checkpoint_path)
 
-    # TODO
+
     #### TESTING ####
     # Test loss
     print("TESTING")
 
     # Load best model based on validation loss
-    #state = load_model(model, None, "checkpoints/alexunet_gpu_depth1_level6_res_learned_lstm_with_conv/checkpoint_7650", device)
     state = load_model(model, None, state["best_checkpoint"], device)
-    test_loss = validate(batch_size, num_workers, device, model, criterion, training_data)
+    test_loss = validate(batch_size, num_workers, device, model, criterion, test_data)
     print("TEST FINISHED: LOSS: " + str(test_loss))
-    writer.add_scalar("train_loss", test_loss, state["step"])
+    writer.add_scalar("test_loss", test_loss, state["step"])
 
     # Mir_eval metrics
-    test_metrics = evaluate(channels, sr, dataset["train"], model, instruments)
+    test_metrics = evaluate(channels, sr, dataset["test"], model, instruments)
 
     # Dump all metrics results into pickle file for later analysis if needed
-    with open(os.path.join(checkpoint_dir, "results_train_hq.pkl"), "wb") as f:
+    with open(os.path.join(checkpoint_dir, "results.pkl"), "wb") as f:
         pickle.dump(test_metrics, f)
 
     # Write most important metrics into Tensorboard log
-    avg_SDRs = {inst: np.mean([np.nanmedian(song[inst]["SDR"]) for song in test_metrics]) for inst in
+    avg_SDRs = {inst: np.median([np.nanmedian(song[inst]["SDR"]) for song in test_metrics]) for inst in
                 instruments}
-    avg_SIRs = {inst: np.mean([np.nanmedian(song[inst]["SIR"]) for song in test_metrics]) for inst in
+    avg_SIRs = {inst: np.median([np.nanmedian(song[inst]["SIR"]) for song in test_metrics]) for inst in
                 instruments}
     for inst in instruments:
         writer.add_scalar("train_SDR_" + inst, avg_SDRs[inst], state["step"])
         writer.add_scalar("train_SIR_" + inst, avg_SIRs[inst], state["step"])
-    overall_SDR = np.mean([v for v in avg_SDRs.values()])
+    overall_SDR = np.median([v for v in avg_SDRs.values()])
     writer.add_scalar("train_SDR", overall_SDR)
     print("SDR: " + str(overall_SDR))
 
